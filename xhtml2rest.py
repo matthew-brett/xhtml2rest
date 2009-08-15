@@ -99,7 +99,7 @@ unindent = ''
 hyperlinks = {} # text-target pairs found in "a href" elements
 ###############################################################################
 
-class Ditem:
+class Ditem(object):
     """A document item; usually a node, but can be a block of text
     resulting from processing adjacent inline items. If it is a node,
     it is usually the BlockDitem subclass; if it is text, it is
@@ -274,7 +274,7 @@ class ListItemDitem(BlockDitem):
             unindent = '*   '
         return BlockDitem.format(self, width)
 
-class RenderedColumn:
+class RenderedColumn(object):
     "Width information about a column being rendered"
     def __init__(self, minwidth, maxwidth):
         self.minwidth = minwidth
@@ -461,13 +461,24 @@ def mergeChildren(node):
 def handleText(node):
     return Ditem(node.data)
 
+def plainText(node):
+    ''' Strip all but the text from node and node children '''
+    if node.hasChildNodes():
+        texts = [plainText(cnode).text
+                 for cnode in node.childNodes]
+        return Ditem(''.join(texts))
+    if node.nodeType == node.TEXT_NODE:
+        return handleText(node)
+    return Ditem('')
+    
 def handleAnchor(node):
-    result = mergeChildren(node)
+    #result = mergeChildren(node)
+    result = plainText(node)
     result.type = node.nodeName
     result.text = result.text.strip()
     if result.text == '': return result
     target = node.getAttribute('href').strip()
-    if target=="" or target[0]=='#': return result  # Ignore intrnl links
+    if target=="" or target[0]=='#': return result  # Ignore internal links
     result.text = re.sub('\s+', ' ', result.text)
     key = result.text.lower()
     if hyperlinks.has_key(key) and hyperlinks[key]!=target:
@@ -488,6 +499,8 @@ def handleAnchor(node):
 def handleHeading(node):
     contents = mergeChildren(node)
     if contents.empty(): return contents
+    if node.parentNode.nodeName in ('td', 'th'):
+        return Ditem('')
     result = HeadingDitem(node.nodeName)
     result.children.append(contents)
     return result
@@ -502,7 +515,7 @@ def handleEmphasis(node):
 def handleTt(node):
     result = mergeChildren(node)
     result.type = node.nodeName
-    if result.text and not node.hasChildNodes():
+    if result.text:
         result.text = '``' + result.text + '``'
     return result
 
@@ -550,11 +563,17 @@ def handleTr(node):
 def handlePre(node):
     return PreDitem(mergeChildren(node).text)
 
-dom1 = xml.dom.minidom.parse(sys.argv[1])
-ditem = handleNode(dom1.getElementsByTagName("body")[0])
-ditem.propagate_indents()
-(utf8_encode, utf8_decode, utf8_reader, utf8_writer) = codecs.lookup('utf-8')
-outf = utf8_writer(sys.stdout)
-outf.write(ditem.format(79) + '\n')
-for h in hyperlinks.keys():
-    outf.write('\n.. _`' + h + '`:\n    ' + hyperlinks[h] + '\n')
+
+def write_dom(dom, out_stream=sys.stdout, codec='utf-8'):
+    ditem = handleNode(dom.getElementsByTagName("body")[0])
+    ditem.propagate_indents()
+    _, _, _, utf8_writer = codecs.lookup(codec)
+    outf = utf8_writer(out_stream)
+    outf.write(ditem.format(79) + '\n')
+    for h in hyperlinks.keys():
+        outf.write('\n.. _`' + h + '`:\n    ' + hyperlinks[h] + '\n')
+    
+
+if __name__ == '__main__':
+    dom1 = xml.dom.minidom.parse(sys.argv[1])
+    write_dom(dom1)
